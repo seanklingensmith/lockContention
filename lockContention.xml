@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25" zv="Cache for UNIX (Apple Mac OS X for x86-64) 2016.2 (Build 545.0U QDTESTSYS)" ts="2016-01-20 12:50:23">
+<Routine name="lockContention" type="MAC" languagemode="0" timestamp="63937,45077.244345"><![CDATA[
+#define LockFields "Owner,Mode,Flags,FullReference,WaiterPID,WaiterMode,WaiterType"
+#define LockPID 		1
+#define LockWaiterPID 	5
+#define LockWaiterMode  6
+#define LockWaiterType  7
+#define PIDFields   "CurrentSrcLine,GlobalReferences,CommandsExecuted,State,CurrentLineAndRoutine"
+#define PIDCaptions "Src,GblRefs,Cmds,State,Line"
+
+lockContention()
+{
+	set stmt=##class(%SQL.Statement).%New()
+	set sc=stmt.%PrepareClassQuery("%SYS.LockQuery","Detail")
+	if 'sc do $system.OBJ.DisplayError(sc) quit
+	set rs=stmt.%Execute()
+	
+	while (rs.%Next()) {
+		if rs.%Get("WaiterPID")'="" {
+			set lockentry=""
+			for i=1:1:$length($$$LockFields,",") {
+				set field=$piece($$$LockFields,",",i)
+				set lockentry=lockentry_$lb(rs.%Get(field))
+			}
+			set locks($i(locks))=lockentry
+		}
+	}
+	
+	if $g(locks)="" {
+		write "No contention",!
+		quit
+	}
+	
+	for i=1:1:locks {
+		set pid = $lg(locks(i),$$$LockPID)
+		set waiters = $lg(locks(i),$$$LockWaiterPID)
+		
+		do getPIDInfo(pid,.pids)
+		for j=1:1:$l(waiters,",") {
+			do getPIDInfo($piece(waiters,",",j),.pids)
+		}
+	}
+	
+	do display(.locks,.pids)
+}
+
+getPIDInfo(pid,pids)
+{
+	set stmt=##class(%SQL.Statement).%New()
+	set sc = stmt.%Prepare("select "_$$$PIDFields_" from %SYS.ProcessQuery Where PID=?")
+	if 'sc do $system.OBJ.DisplayError(sc) quit
+	
+	set rs=stmt.%Execute(pid)
+	
+	if 'rs.%Next() {
+		write " Could not find Process info for pid: "_pid,!
+		write " Error: "_rs.%SQLCODE_": "_rs.%Message,!
+		quit
+	}
+	
+	set pidentry=""
+	for i=1:1:$length($$$PIDFields,",") {
+		set field = $piece($$$PIDFields,",",i)
+		set pidentry=pidentry_$lb(rs.%Get(field))
+	}
+	set pids(pid)=pidentry
+			
+	//set pids(pid)=$lb(rs.CurrentLineAndRoutine,rs.CurrentSrcLine,rs.GlobalReferences,rs.CommandsExecuted,rs.State)
+}
+
+display(locks,pids)
+{	
+	for i=1:1:$$$LockWaiterPID-1 {
+		write $justify($piece($$$LockFields,",",i),10)_" "
+	}
+	
+	write !
+	for i=1:1:locks {
+		set currLock=locks(i)
+		for j=1:1:$$$LockWaiterPID-1 {
+			write $justify($lg(currLock,j),10)_" "
+		}
+		write !
+		set waiters = $lg(locks(i),$$$LockWaiterPID)	
+		set waitertype = $lg(currLock,$$$LockWaiterType)
+		set waitermode = $lg(currLock,$$$LockWaiterMode)
+		
+		for j=1:1:$length(waiters,",") {
+			write $justify($piece(waiters,",",j),12)
+			write $justify($piece(waitermode,",",j)_":"_$piece(waitertype,",",j),10)
+			write !
+		}
+	}
+
+	//PID info
+	write !,!
+	write $justify("PID",10)_" "
+	
+	for j=1:1:$length($$$PIDFields,",") {
+		write $justify($piece($$$PIDCaptions,",",j),10)_" "
+	}	
+	write !	
+	set i=""
+	for  {
+		set i=$order(pids(i),1,pinfo)
+		if i="" quit
+		write $justify(i,10)_" "
+		for j=1:1:$length($$$PIDFields,",") {
+			write $justify($lg(pinfo,j),10)_" "
+		}
+		write !
+	}
+}
+]]></Routine>
+</Export>
